@@ -52,17 +52,17 @@
 
 		const scene = new THREE.Scene();
 		scene.background = new THREE.Color(0x88ccee);
-		scene.fog = new THREE.Fog(0x88ccee, 0, 50);
+		scene.fog = new THREE.Fog(0xff0000, 0, 100);
 
 		const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
 		camera.rotation.order = 'YXZ';
 
-		const fillLight1 = new THREE.HemisphereLight(0x8dc1de, 0x00668d, 5.5);
+		const fillLight1 = new THREE.HemisphereLight(0x8dc1de, 0x00668d, 1.5);
 		fillLight1.position.set(2, 1, 1);
 		scene.add(fillLight1);
 
 
-		const directionalLight = new THREE.DirectionalLight(0xffffff, 25.5);
+		const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
 		directionalLight.position.set(- 5, 25, - 1);
 		directionalLight.castShadow = true;
 		directionalLight.shadow.camera.near = 0.01;
@@ -81,7 +81,7 @@
 
 		const container = document.getElementById('container');
 
-		const renderer = new THREE.WebGLRenderer({ antialias: true });
+		const renderer = new THREE.WebGLRenderer({ antialias: false });
 		renderer.setPixelRatio(window.devicePixelRatio);
 		renderer.setSize(window.innerWidth, window.innerHeight);
 		renderer.setAnimationLoop(animate);
@@ -423,39 +423,47 @@
 		}
 
 		const loader = new FBXLoader().setPath('./models/fbx/');
+		//dconst textureLoader = new TextureLoader().setPath('./models/fbx/');
 
-		loader.load('untitled.fbx', (object) => {
+		loader.load('hall.fbx', (object) => {
 
-			// chuck it in the scene
 			scene.add(object);
-
-			// fix the scale — tweak numbers till it feels right
-			//object.scale.set(0.01, 0.01, 0.01);  // or 0.1, or 100, depends on the source app
 			object.position.set(0, 0, 0);
 
 			worldOctree.fromGraphNode(object);
 
 			object.traverse((child) => {
-				if (child.isMesh) {
-					// Convert Phong → Standard
-					const oldMat = child.material;
-					child.material = new THREE.MeshStandardMaterial({
-						map: oldMat.map || null,
-						color: oldMat.color,
-						roughness: 0.7,
-						metalness: 0.0,
-					});
+				if (!child.isMesh) return;
 
+				const mats = Array.isArray(child.material) ? child.material : [child.material];
 
+				// check if *all* materials are named 'inv'
+				const allInv = mats.every((mat) => mat.name === 'inv');
 
-					child.castShadow = true;
-					child.receiveShadow = true;
-					if (child.material.map) {
-						child.material.map.colorSpace = THREE.SRGBColorSpace;
-						child.material.map.anisotropy = 4;
-					}
+				if (allInv) {
+					// completely invisible collision helper
+					child.visible = false;
+					child.castShadow = false;
+					child.receiveShadow = false;
+					return;
 				}
+
+				// otherwise, visible mesh
+				child.castShadow = true;
+				child.receiveShadow = true;
+
+				mats.forEach((mat) => {
+					if (mat.map) {
+						mat.map.colorSpace = THREE.SRGBColorSpace;
+						mat.map.anisotropy = 1; // no fancy mip filtering
+						mat.map.magFilter = THREE.NearestFilter;
+						mat.map.minFilter = THREE.NearestFilter;
+						mat.map.generateMipmaps = false;
+						mat.map.needsUpdate = true;
+					}
+				});
 			});
+
 		});
 
 		function teleportPlayerIfOob() {
