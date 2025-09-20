@@ -79,6 +79,9 @@
 
 		scene.add(new THREE.AmbientLight(0xffffff, 5.2));
 
+
+		const loader = new FBXLoader().setPath('./models/fbx/');
+
 		const container = document.getElementById('container');
 
 		const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -100,26 +103,40 @@
 
 		const STEPS_PER_FRAME = 5;
 
-		const sphereGeometry = new THREE.IcosahedronGeometry(SPHERE_RADIUS, 5);
-		const sphereMaterial = new THREE.MeshLambertMaterial({ color: 0xdede8d });
-
-		const spheres = [];
-		let sphereIdx = 0;
+		const heads = [];
+		let headIdx = 0;
 
 		for (let i = 0; i < NUM_SPHERES; i++) {
+			loader.load('head.fbx', (head) => {
+				pixelizeMap(head.children[0].material)
 
-			const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-			sphere.castShadow = true;
-			sphere.receiveShadow = true;
+				// compute bounding sphere for smooth rolling
+				const box = new THREE.Box3().setFromObject(head);
+				const size = new THREE.Vector3();
+				box.getSize(size);
+				const radius = Math.max(size.x, size.y, size.z) / 2;
 
-			scene.add(sphere);
+				// center the head mesh
+				const center = new THREE.Vector3();
+				box.getCenter(center);
+				head.position.sub(center);
 
-			spheres.push({
-				mesh: sphere,
-				collider: new THREE.Sphere(new THREE.Vector3(0, - 100, 0), SPHERE_RADIUS),
-				velocity: new THREE.Vector3()
+				head.traverse((child) => {
+					if (child.isMesh) {
+						child.castShadow = true;
+						child.receiveShadow = true;
+					}
+				});
+
+				scene.add(head);
+
+				heads.push({
+					mesh: head,
+					collider: new THREE.Sphere(new THREE.Vector3(0, -100, 0), radius),
+					velocity: new THREE.Vector3()
+				});
+
 			});
-
 		}
 
 		const worldOctree = new Octree();
@@ -187,22 +204,20 @@
 		}
 
 		function throwBall() {
+			if (heads.length === 0) return; // still loading
 
-			const sphere = spheres[sphereIdx];
+			const head = heads[headIdx];
 
 			camera.getWorldDirection(playerDirection);
-
-			sphere.collider.center.copy(playerCollider.end).addScaledVector(playerDirection, playerCollider.radius * 1.5);
-
-			// throw the ball with more force if we hold the button longer, and if we move forward
+			head.collider.center.copy(playerCollider.end)
+				.addScaledVector(playerDirection, playerCollider.radius * 1.5);
 
 			const impulse = 15 + 30 * (1 - Math.exp((mouseTime - performance.now()) * 0.001));
 
-			sphere.velocity.copy(playerDirection).multiplyScalar(impulse);
-			sphere.velocity.addScaledVector(playerVelocity, 2);
+			head.velocity.copy(playerDirection).multiplyScalar(impulse);
+			head.velocity.addScaledVector(playerVelocity, 2);
 
-			sphereIdx = (sphereIdx + 1) % spheres.length;
-
+			headIdx = (headIdx + 1) % heads.length;
 		}
 
 		function playerCollisions() {
@@ -290,13 +305,13 @@
 
 		function spheresCollisions() {
 
-			for (let i = 0, length = spheres.length; i < length; i++) {
+			for (let i = 0, length = heads.length; i < length; i++) {
 
-				const s1 = spheres[i];
+				const s1 = heads[i];
 
 				for (let j = i + 1; j < length; j++) {
 
-					const s2 = spheres[j];
+					const s2 = heads[j];
 
 					const d2 = s1.collider.center.distanceToSquared(s2.collider.center);
 					const r = s1.collider.radius + s2.collider.radius;
@@ -324,40 +339,30 @@
 
 		}
 
-		function updateSpheres(deltaTime) {
+		function updateHeads(deltaTime) {
+			heads.forEach(head => {
+				head.collider.center.addScaledVector(head.velocity, deltaTime);
 
-			spheres.forEach(sphere => {
-
-				sphere.collider.center.addScaledVector(sphere.velocity, deltaTime);
-
-				const result = worldOctree.sphereIntersect(sphere.collider);
+				const result = worldOctree.sphereIntersect(head.collider);
 
 				if (result) {
-
-					sphere.velocity.addScaledVector(result.normal, - result.normal.dot(sphere.velocity) * 1.5);
-					sphere.collider.center.add(result.normal.multiplyScalar(result.depth));
-
+					head.velocity.addScaledVector(result.normal, - result.normal.dot(head.velocity) * 1.5);
+					head.collider.center.add(result.normal.multiplyScalar(result.depth));
 				} else {
-
-					sphere.velocity.y -= GRAVITY * deltaTime;
-
+					head.velocity.y -= GRAVITY * deltaTime;
 				}
 
 				const damping = Math.exp(- 1.5 * deltaTime) - 1;
-				sphere.velocity.addScaledVector(sphere.velocity, damping);
+				head.velocity.addScaledVector(head.velocity, damping);
 
-				playerSphereCollision(sphere);
-
+				playerSphereCollision(head);
 			});
 
-			spheresCollisions();
+			spheresCollisions(); // you can rename to headsCollisions if you want
 
-			for (const sphere of spheres) {
-
-				sphere.mesh.position.copy(sphere.collider.center);
-
-			}
-
+			heads.forEach(head => {
+				head.mesh.position.copy(head.collider.center);
+			});
 		}
 
 		function getForwardVector() {
@@ -422,7 +427,6 @@
 
 		}
 
-		const loader = new FBXLoader().setPath('./models/fbx/');
 		//dconst textureLoader = new TextureLoader().setPath('./models/fbx/');
 
 		loader.load('hall.fbx', (object) => {
@@ -454,12 +458,7 @@
 
 				mats.forEach((mat) => {
 					if (mat.map) {
-						mat.map.colorSpace = THREE.SRGBColorSpace;
-						mat.map.anisotropy = 1; // no fancy mip filtering
-						mat.map.magFilter = THREE.NearestFilter;
-						mat.map.minFilter = THREE.NearestFilter;
-						mat.map.generateMipmaps = false;
-						mat.map.needsUpdate = true;
+						pixelizeMap(mat)
 					}
 				});
 			});
@@ -480,6 +479,15 @@
 
 		}
 
+		function pixelizeMap(mat) {
+			mat.map.colorSpace = THREE.SRGBColorSpace;
+			mat.map.anisotropy = 1; // no fancy mip filtering
+			mat.map.magFilter = THREE.NearestFilter;
+			mat.map.minFilter = THREE.NearestFilter;
+			mat.map.generateMipmaps = false;
+			mat.map.needsUpdate = true;
+		}
+
 
 		function animate() {
 
@@ -494,7 +502,7 @@
 
 				updatePlayer(deltaTime);
 
-				updateSpheres(deltaTime);
+				updateHeads(deltaTime); // updated here
 
 				teleportPlayerIfOob();
 
