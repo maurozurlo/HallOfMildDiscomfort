@@ -10,8 +10,7 @@
 
 <body>
 	<div id="info">
-		Octree threejs demo - basic collisions with static triangle mesh<br />
-		MOUSE to look around and to throw balls<br />
+		MOUSE to look around and to throw heads<br />
 		WASD to move and SPACE to jump
 	</div>
 	<div id="container"></div>
@@ -98,7 +97,7 @@
 
 		const GRAVITY = 30;
 
-		const NUM_SPHERES = 100;
+		const NUM_HEADS = 100;
 		const SPHERE_RADIUS = 0.2;
 
 		const STEPS_PER_FRAME = 5;
@@ -106,7 +105,7 @@
 		const heads = [];
 		let headIdx = 0;
 
-		for (let i = 0; i < NUM_SPHERES; i++) {
+		for (let i = 0; i < NUM_HEADS; i++) {
 			loader.load('head.fbx', (head) => {
 				pixelizeMap(head.children[0].material)
 
@@ -133,11 +132,61 @@
 				heads.push({
 					mesh: head,
 					collider: new THREE.Sphere(new THREE.Vector3(0, -100, 0), radius),
-					velocity: new THREE.Vector3()
+					velocity: new THREE.Vector3(),
+					hitCooldown: 0 // frames until it can hit trigger again
 				});
 
 			});
 		}
+
+		// TRIGGER TO OPEN DOOR
+		let trigger = {
+			mesh: null,
+			hitHeads: new Set(),  // track which heads hit
+			radius: 0,
+			isActive: false,
+		};
+
+		loader.load('trigger.fbx', (object) => {
+			object.position.set(0, 0, -4);
+
+			object.traverse((child) => {
+				if (child.isMesh) {
+					child.castShadow = true;
+					child.receiveShadow = true;
+				}
+
+			});
+
+			scene.add(object);
+
+			// Compute bounding sphere from mesh
+			const boundingBox = new THREE.Box3().setFromObject(object);
+
+			const size = new THREE.Vector3();
+			boundingBox.getSize(size);
+			const radius = size.length() / 2; // sphere radius that encloses the cube
+
+
+
+
+			// after computing trigger.radius
+			const debugSphere = new THREE.Mesh(
+				new THREE.SphereGeometry(trigger.radius, 16, 16),
+				new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
+			);
+			debugSphere.position.set(2.1, 3.44, -16.28);
+
+
+			scene.add(debugSphere);
+
+			trigger = {
+				mesh: debugSphere,
+				hits: 0,
+				radius,
+				isActive: false,
+			};
+		});
 
 		const worldOctree = new Octree();
 
@@ -340,7 +389,7 @@
 		}
 
 		function updateHeads(deltaTime) {
-			heads.forEach(head => {
+			heads.forEach((head, idx) => {
 				head.collider.center.addScaledVector(head.velocity, deltaTime);
 
 				const result = worldOctree.sphereIntersect(head.collider);
@@ -356,6 +405,7 @@
 				head.velocity.addScaledVector(head.velocity, damping);
 
 				playerSphereCollision(head);
+				checkTriggerCollision(head, idx);
 			});
 
 			spheresCollisions(); // you can rename to headsCollisions if you want
@@ -363,6 +413,38 @@
 			heads.forEach(head => {
 				head.mesh.position.copy(head.collider.center);
 			});
+
+			function checkTriggerCollision(head, headId) {
+				if (!trigger.mesh) return;
+
+				if (!trigger.hitHeads) trigger.hitHeads = new Set();
+
+				if (head.hitCooldown > 0) {
+					head.hitCooldown--;
+					return;
+				}
+
+				const distance = head.collider.center.distanceTo(trigger.mesh.position);
+				const combinedRadius = head.collider.radius + trigger.radius;
+
+				if (distance < combinedRadius) {
+					// add this head to the set of unique hits
+					trigger.hitHeads.add(headId);
+					head.hitCooldown = 10; // frames until it can hit again
+
+					console.log(`Trigger hit by head ${headId}. Total unique hits: ${trigger.hitHeads.size}`);
+
+					// optional: push head slightly away to prevent immediate re-hit
+					const pushBack = new THREE.Vector3().subVectors(head.collider.center, trigger.mesh.position).normalize().multiplyScalar(0.1);
+					head.collider.center.add(pushBack);
+
+					if (trigger.hitHeads.size === 3 && !trigger.isActive) {
+						alert('Trigger activated by 3 different heads!');
+
+						trigger.isActive = true;
+					}
+				}
+			}
 		}
 
 		function getForwardVector() {
@@ -428,7 +510,7 @@
 		}
 
 		//dconst textureLoader = new TextureLoader().setPath('./models/fbx/');
-
+		let scrollingCredits = null;
 		loader.load('hall.fbx', (object) => {
 
 			scene.add(object);
@@ -455,6 +537,11 @@
 				// otherwise, visible mesh
 				child.castShadow = true;
 				child.receiveShadow = true;
+
+				// store the "scrolling" mesh
+				if (child.name === 'scrolling') {
+					scrollingCredits = child;
+				}
 
 				mats.forEach((mat) => {
 					if (mat.map) {
@@ -488,6 +575,46 @@
 			mat.map.needsUpdate = true;
 		}
 
+		const scrollSpeed = .5; // units per second
+
+		function scrollCredits(deltaTime) {
+			if (!scrollingCredits) return;
+
+			scrollingCredits.traverse((child) => {
+				if (!child.isMesh) return;
+
+				const mats = Array.isArray(child.material) ? child.material : [child.material];
+
+				mats.forEach((mat) => {
+					if (mat.map) {
+						mat.map.offset.y += scrollSpeed * deltaTime;
+						mat.map.offset.y %= 1;
+					}
+				});
+			});
+		}
+
+		let cheatBuffer = '';
+
+		document.addEventListener('keydown', (event) => {
+			// only letters, lowercase them
+			const key = event.key.toLowerCase();
+			if (key.length === 1 && key >= 'a' && key <= 'z') {
+				cheatBuffer += key;
+
+				// keep buffer short so it doesn’t grow forever
+				if (cheatBuffer.length > 10) {
+					cheatBuffer = cheatBuffer.slice(-10);
+				}
+
+				// check for cheat code
+				if (cheatBuffer.includes('idkfa')) {
+					alert("Donny, you're out of your element!");
+					cheatBuffer = ''; // reset after trigger
+				}
+			}
+		});
+
 
 		function animate() {
 
@@ -506,10 +633,12 @@
 
 				teleportPlayerIfOob();
 
+				scrollCredits(deltaTime);
+
 			}
 
 			// update HUD coords
-			coordDiv.textContent = `Player: ${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}`;
+			coordDiv.textContent = `${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}`;
 
 			renderer.render(scene, camera);
 
