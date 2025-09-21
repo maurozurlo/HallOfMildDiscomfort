@@ -148,7 +148,7 @@
 		};
 
 		loader.load('trigger.fbx', (object) => {
-			object.position.set(0, 0, -4);
+			object.position.set(0, 2.5, 2.5);
 
 			object.traverse((child) => {
 				if (child.isMesh) {
@@ -168,14 +168,12 @@
 			const radius = size.length() / 2; // sphere radius that encloses the cube
 
 
-
-
 			// after computing trigger.radius
 			const debugSphere = new THREE.Mesh(
 				new THREE.SphereGeometry(trigger.radius, 16, 16),
 				new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
 			);
-			debugSphere.position.set(2.1, 3.44, -16.28);
+			debugSphere.position.set(0, 2.5, 2.5);
 
 
 			scene.add(debugSphere);
@@ -439,9 +437,19 @@
 					head.collider.center.add(pushBack);
 
 					if (trigger.hitHeads.size === 3 && !trigger.isActive) {
-						alert('Trigger activated by 3 different heads!');
+						console.log('Trigger activated by 3 different heads!');
 
 						trigger.isActive = true;
+
+						if (spawnPoint) {
+							// move the player collider to spawnPoint’s world position
+							playerCollider.start.set(spawnPoint.x, spawnPoint.y + 0.35, spawnPoint.z);
+							playerCollider.end.set(spawnPoint.x, spawnPoint.y + 1.0, spawnPoint.z);
+							playerCollider.radius = 0.35;
+
+							camera.position.copy(playerCollider.end);
+							camera.rotation.set(0, 0, 0);
+						}
 					}
 				}
 			}
@@ -509,14 +517,21 @@
 
 		}
 
-		//dconst textureLoader = new TextureLoader().setPath('./models/fbx/');
+
 		let scrollingCredits = null;
+		let egg = null;
+		let spawnPoint = null;
+		let killZone = null;
+
+
 		loader.load('hall.fbx', (object) => {
 
 			scene.add(object);
 			object.position.set(0, 0, 0);
 
-			worldOctree.fromGraphNode(object);
+
+			// collect nodes we want to strip out of the geometry used for the octree
+			const nodesToRemove = [];
 
 			object.traverse((child) => {
 				if (!child.isMesh) return;
@@ -525,8 +540,23 @@
 
 				// check if *all* materials are named 'inv'
 				const allInv = mats.every((mat) => mat.name === 'inv');
+				let isDummy = false;
+				if (child.name.includes('dummy')) {
+					isDummy = true;
+					if (child.name.includes('sp')) {
+						spawnPoint = new THREE.Vector3();
+						child.getWorldPosition(spawnPoint);
+					}
+					if (child.name.includes('kill')) {
+						killZone = new THREE.Box3().setFromObject(child);
 
-				if (allInv) {
+
+					}
+
+					nodesToRemove.push(child);
+				}
+
+				if (allInv || isDummy) {
 					// completely invisible collision helper
 					child.visible = false;
 					child.castShadow = false;
@@ -543,13 +573,24 @@
 					scrollingCredits = child;
 				}
 
+				if (child.name === 'egg') {
+					egg = child;
+				}
+
 				mats.forEach((mat) => {
 					if (mat.map) {
 						pixelizeMap(mat)
 					}
 				});
 			});
+			// remove the collected dummy nodes from their actual parents (safe removal)
+			nodesToRemove.forEach((n) => {
+				if (n.parent) {
+					n.parent.remove(n); // alternative: n.removeFromParent();
+				}
+			});
 
+			worldOctree.fromGraphNode(object);
 		});
 
 		function teleportPlayerIfOob() {
@@ -566,6 +607,23 @@
 
 		}
 
+
+		function checkKillZone() {
+			if (!killZone || !spawnPoint) return;
+
+			// approximate player as their end point (camera pos)
+			const playerPos = playerCollider.end;
+
+			if (killZone.containsPoint(playerPos)) {
+				playerCollider.start.set(spawnPoint.x, spawnPoint.y + 0.35, spawnPoint.z);
+				playerCollider.end.set(spawnPoint.x, spawnPoint.y + 1.0, spawnPoint.z);
+				playerCollider.radius = 0.35;
+
+				camera.position.copy(playerCollider.end);
+				camera.rotation.set(0, 0, 0);
+			}
+		}
+
 		function pixelizeMap(mat) {
 			mat.map.colorSpace = THREE.SRGBColorSpace;
 			mat.map.anisotropy = 1; // no fancy mip filtering
@@ -575,7 +633,7 @@
 			mat.map.needsUpdate = true;
 		}
 
-		const scrollSpeed = .5; // units per second
+		const scrollSpeed = .1; // units per second
 
 		function scrollCredits(deltaTime) {
 			if (!scrollingCredits) return;
@@ -594,6 +652,13 @@
 			});
 		}
 
+		const spinSpeedZ = 0.5; // radians per second
+		function spinEgg(deltaTime) {
+			if (!egg) return;
+			egg.rotation.z += spinSpeedZ * deltaTime;
+			egg.rotation.z %= Math.PI * 2;
+		}
+
 		let cheatBuffer = '';
 
 		document.addEventListener('keydown', (event) => {
@@ -609,12 +674,11 @@
 
 				// check for cheat code
 				if (cheatBuffer.includes('idkfa')) {
-					alert("Donny, you're out of your element!");
+					alert("You're out of your element Space Marine!");
 					cheatBuffer = ''; // reset after trigger
 				}
 			}
 		});
-
 
 		function animate() {
 
@@ -634,6 +698,10 @@
 				teleportPlayerIfOob();
 
 				scrollCredits(deltaTime);
+
+				spinEgg(deltaTime);
+
+				checkKillZone();
 
 			}
 
