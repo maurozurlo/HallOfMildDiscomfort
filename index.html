@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-	<title>three.js - misc - octree collisions</title>
+	<title>HALL OF MILD DISCOMFORT</title>
 	<meta charset=utf-8 />
 	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 	<link type="text/css" rel="stylesheet" href="main.css">
@@ -255,6 +255,8 @@
 
 			const head = heads[headIdx];
 
+			if (hit) hit.play();
+
 			camera.getWorldDirection(playerDirection);
 			head.collider.center.copy(playerCollider.end)
 				.addScaledVector(playerDirection, playerCollider.radius * 1.5);
@@ -428,9 +430,11 @@
 				if (distance < combinedRadius) {
 					// add this head to the set of unique hits
 					trigger.hitHeads.add(headId);
-					head.hitCooldown = 10; // frames until it can hit again
+					head.hitCooldown = 120; // frames until it can hit again
 
 					console.log(`Trigger hit by head ${headId}. Total unique hits: ${trigger.hitHeads.size}`);
+
+					if (bump) bump.play()
 
 					// optional: push head slightly away to prevent immediate re-hit
 					const pushBack = new THREE.Vector3().subVectors(head.collider.center, trigger.mesh.position).normalize().multiplyScalar(0.1);
@@ -440,6 +444,15 @@
 						console.log('Trigger activated by 3 different heads!');
 
 						trigger.isActive = true;
+
+						if (bgm && bgm2) {
+
+							crossfade(bgm2, bgm, 500);
+						}
+
+						if (teleport) {
+							teleport.play();
+						}
 
 						if (spawnPoint) {
 							// move the player collider to spawnPoint’s world position
@@ -615,6 +628,7 @@
 			const playerPos = playerCollider.end;
 
 			if (killZone.containsPoint(playerPos)) {
+				if (dead) dead.play();
 				playerCollider.start.set(spawnPoint.x, spawnPoint.y + 0.35, spawnPoint.z);
 				playerCollider.end.set(spawnPoint.x, spawnPoint.y + 1.0, spawnPoint.z);
 				playerCollider.radius = 0.35;
@@ -633,7 +647,7 @@
 			mat.map.needsUpdate = true;
 		}
 
-		const scrollSpeed = .1; // units per second
+		const scrollSpeed = .5; // units per second
 
 		function scrollCredits(deltaTime) {
 			if (!scrollingCredits) return;
@@ -712,6 +726,90 @@
 
 		}
 
+	</script>
+
+	<!-- include howler (or npm install howler if you’re bundling) -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
+	<script>
+		// background music
+		const bgm = new Howl({
+			src: ['audio/bgm.ogg', 'audio/bgm.mp3'],
+			loop: true,
+			volume: 0.5, // 0.0 = mute, 1.0 = full blast
+			autoplay: true
+		});
+		const bgm2 = new Howl({
+			src: ['audio/bgm2.ogg', 'audio/bgm2.mp3'],
+			loop: true,
+			volume: 0.0 // start muted
+		});
+
+		const hit = new Howl({
+			src: ['audio/ouch.mp3'],
+			loop: false,
+			volume: 1.0,
+			preload: true
+		});
+
+		const bump = new Howl({
+			src: ['audio/bump.mp3'],
+			loop: false,
+			volume: 1.0,
+			preload: true
+		});
+
+		const teleport = new Howl({
+			src: ['audio/teleport.mp3'],
+			loop: false,
+			volume: 1.0,
+			preload: true
+		});
+
+		const dead = new Howl({
+			src: ['audio/dead.mp3'],
+			loop: false,
+			volume: 1.0,
+			preload: true
+		});
+
+		// crossfade function
+		function crossfade(toFadeIn, toFadeOut, duration = 2000) {
+			const stepTime = 50; // ms
+			const steps = duration / stepTime;
+			let step = 0;
+
+			// make sure the track to fade in is playing
+			if (!toFadeIn.playing()) toFadeIn.play();
+
+			const fadeInterval = setInterval(() => {
+				step++;
+				const t = step / steps;
+
+				toFadeIn.volume(t);       // ramp up
+				toFadeOut.volume(1 - t);  // ramp down
+
+				if (step >= steps) {
+					clearInterval(fadeInterval);
+					toFadeOut.pause(); // optionally pause the faded-out track
+				}
+			}, stepTime);
+		}
+
+
+		// optional: expose controls
+		function toggleMusic() {
+			if (bgm.playing()) {
+				bgm.pause();
+			} else {
+				bgm.play();
+			}
+		}
+
+		document.addEventListener('keydown', (event) => {
+			if (event.key.toLowerCase() === 'm') {
+				toggleMusic();
+			}
+		});
 	</script>
 </body>
 
