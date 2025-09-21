@@ -106,7 +106,7 @@
 		let headIdx = 0;
 
 		for (let i = 0; i < NUM_HEADS; i++) {
-			loader.load('head.fbx', (head) => {
+			loader.load('head.FBX', (head) => {
 				pixelizeMap(head.children[0].material)
 
 				// compute bounding sphere for smooth rolling
@@ -147,7 +147,7 @@
 			isActive: false,
 		};
 
-		loader.load('trigger.fbx', (object) => {
+		loader.load('trigger.FBX', (object) => {
 			object.position.set(0, 2.5, 2.5);
 
 			object.traverse((child) => {
@@ -537,7 +537,7 @@
 		let killZone = null;
 
 
-		loader.load('hall.fbx', (object) => {
+		loader.load('hall.FBX', (object) => {
 
 			scene.add(object);
 			object.position.set(0, 0, 0);
